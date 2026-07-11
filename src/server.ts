@@ -1,9 +1,9 @@
 import express from "express";
 import { loadConfig } from "./config.js";
-import { apiRegisterRepo, apiListRepos, apiGetRepo, apiCreateGithubRepo, apiClone, apiPull, apiPush, apiSync, apiSyncStatus, apiStatus, apiListTags, apiCreateTag, apiLog, apiLogAudit, apiCheckout, apiCheck, apiSyncCode, apiSnapshot, apiRepoPull, } from "./tools/gitOps.js";
+import { apiRegisterRepo, apiListRepos, apiGetRepo, apiCreateGithubRepo, apiClone, apiPull, apiPush, apiSync, apiSyncStatus, apiStatus, apiListTags, apiCreateTag, apiLog, apiLogAudit, apiCheckout, apiCheck, apiSyncCode, apiSnapshot, apiRepoPull, apiCodeExport, apiCodeUpload, } from "./tools/gitOps.js";
 const cfg = loadConfig();
 const app = express();
-app.use(express.json({ limit: "5mb" }));
+app.use(express.json({ limit: "100mb" }));
 const tools = {
     repo_register: { handler: apiRegisterRepo, description: "Register a GitHub repo for git-mcp", inputSchema: { type: "object", properties: { name: { type: "string", description: "Repo name" }, github_url: { type: "string", description: "GitHub URL" }, default_branch: { type: "string" }, description: { type: "string" }, tags: { type: "string" }, guard_config: { type: "string" } }, required: ["name", "github_url"] } },
     repo_list: { handler: apiListRepos, description: "List all registered repos", inputSchema: { type: "object", properties: { search: { type: "string" } } } },
@@ -23,7 +23,9 @@ const tools = {
     repo_check: { handler: apiCheck, description: "Pre-push integrity check", inputSchema: { type: "object", properties: { name: { type: "string" }, branch: { type: "string" } }, required: ["name"] } },
     repo_sync: { handler: apiSyncCode, description: "Sync code from test server", inputSchema: { type: "object", properties: { team: { type: "string" }, source_host: { type: "string" }, source_path: { type: "string" } }, required: ["team", "source_host", "source_path"] } },
     repo_snapshot: { handler: apiSnapshot, description: "Get snapshot SHA", inputSchema: { type: "object", properties: { team: { type: "string" } }, required: ["team"] } },
-    repo_pull: { handler: apiRepoPull, description: "Pull from test server + commit + push", inputSchema: { type: "object", properties: { team: { type: "string" }, source_host: { type: "string" }, source_path: { type: "string" }, message: { type: "string" }, author: { type: "string" } }, required: ["team", "source_host", "source_path"] } },
+    code_upload:    { handler: apiCodeUpload,    description: "Upload code to MCP repo. Pass data for small files, or omit to get upload_url for large files", inputSchema: { type: "object", properties: { team: { type: "string", description: "Repo name" }, data: { type: "string", description: "Optional: base64 tar.gz for small uploads. Omit to get HTTP upload URL" }, branch: { type: "string" } }, required: ["team"] } },
+  code_export:    { handler: apiCodeExport,    description: "Export repo as base64 tar.gz for agent local sync", inputSchema: { type: "object", properties: { team: { type: "string", description: "Repo name" } }, required: [] } },
+  repo_pull: { handler: apiRepoPull, description: "Pull from test server + commit + push", inputSchema: { type: "object", properties: { team: { type: "string" }, source_host: { type: "string" }, source_path: { type: "string" }, message: { type: "string" }, author: { type: "string" } }, required: ["team", "source_host", "source_path"] } },
 };
 // MCP JSON-RPC Handler
 async function mcpHandler(req: any, res: any) {
@@ -73,5 +75,6 @@ catch (e: any) {
     res.status(500).json({ ok: false, error: e.message });
 } });
 app.get("/health", (_req, res) => { res.json({ status: "ok", timestamp: new Date().toISOString(), tools: Object.keys(tools).length }); });
+
 app.listen(cfg.port, cfg.host, () => { console.log(`git-mcp on http://${cfg.host}:${cfg.port}`); });
 //# sourceMappingURL=server.js.map

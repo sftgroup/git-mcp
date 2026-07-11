@@ -1,6 +1,6 @@
-import { execSync } from "child_process";
+import { execSync, execFileSync } from "child_process";
 import { tmpdir } from "os";
-import { unlinkSync } from "fs";
+import { statSync, unlinkSync } from "fs";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { resolve, join } from "path";
 import { loadConfig } from "../config.js";
@@ -152,6 +152,13 @@ export async function apiPull(input: { name: string; branch?: string }) {
     };
   }
 
+  // Ensure remote exists (may have been lost)
+  const url = gitTokenUrl(repo.github_url);
+  const rem = gitOptional(repo.local_path, "remote get-url origin");
+  if (!rem) {
+    git(repo.local_path, `remote add origin "${url}"`);
+  }
+  
   git(repo.local_path, `checkout ${branch}`);
   const before = git(repo.local_path, "rev-parse HEAD");
   const out = git(repo.local_path, "pull --rebase origin");
@@ -735,4 +742,75 @@ export async function apiRepoPull(input: {
   } catch (e: any) {
     throw new Error(`Git operation failed: ${e.stderr?.toString() ?? e.message}`.substring(0, 500));
   }
+}
+
+// ─── Code Export (MCP local → agent via HTTP) ───
+
+
+// ─── Code Upload (agent/test-server → MCP via HTTP) ───
+// Receives base64 tar.gz, extracts to /opt/mcp/repos/<team>
+export async function apiCodeUpload(input: { team: string, data?: string, branch?: string }) {
+  const localPath = join(cfg.repoBasePath, input.team);
+  
+  // Also support inline base64 for small uploads
+  if (input.data) {
+    if (!existsSync(localPath)) {
+      mkdirSync(localPath, { recursive: true });
+    }
+    const inFile = join(tmpdir(), `upload-${input.team}-${Date.now()}.tar.gz`);
+    try {
+      writeFileSync(inFile, Buffer.from(input.data, "base64"));
+      const keepGit = existsSync(join(localPath, ".git"));
+      if (keepGit) {
+        execSync(`find ${localPath} -maxdepth 1 ! -name .git ! -path ${localPath} -exec rm -rf {} +`, { timeout: 5000 });
+      } else {
+        execSync(`rm -rf "${localPath}"/*`, { timeout: 5000 });
+        execSync(`git init`, { cwd: localPath, timeout: 5000 });
+      }
+      execFileSync("tar", ["-xzf", inFile, "-C", localPath], { timeout: 15000 });
+      execSync("git add -A", { cwd: localPath, timeout: 5000 });
+      const stat = statSync(inFile);
+      const files = execSync("git diff --cached --stat", { cwd: localPath, encoding: "utf8", timeout: 5000 });
+      return {
+        team: input.team,
+        uploadSizeMB: (stat.size / 1048576).toFixed(2),
+        filesChanged: files.trim() || "no changes",
+        hint: "Code uploaded. Use git_push to commit, then git_sync to push to GitHub."
+      };
+    } finally {
+      try { unlinkSync(inFile); } catch {}
+    }
+  }
+
+  // No data provided → return upload URL for large files
+  return {
+    team: input.team,
+    upload_url: `http://43.156.46.187:3088/raw-upload/${input.team}`,
+    hint: "Use exec curl to upload the tar.gz directly (no 64KB limit). Example: curl --data-binary @project.tar.gz <upload_url>"
+  };
+}
+
+export async function apiCodeExport(input: { team: string }) {
+  const localPath = join(cfg.repoBasePath, input.team);
+  if (!existsSync(localPath)) {
+    throw new Error(`Repo "${input.team}" not found. Use repo_list.`);
+  }
+  if (!existsSync(join(localPath, ".git"))) {
+    throw new Error(`Repo "${input.team}" not cloned. Use git_clone first.`);
+  }
+
+  const repo = await import("../db.js").then(m => m.getRepo(input.team));
+  const branch = repo?.default_branch ?? "main";
+  
+  // Get size without building archive (just for info)
+  const du = execSync("du -sb --exclude .git --exclude node_modules --exclude venv " + localPath, { encoding: "utf8", timeout: 5000 }).trim();
+  const sizeBytes = parseInt(du.split(/\s/)[0] || "0");
+
+  return {
+    team: input.team,
+    branch,
+    download_url: `http://43.156.46.187:3088/raw/${input.team}`,
+    sizeMB: (sizeBytes / 1048576).toFixed(2),
+    hint: "Use exec curl or wget to download the full tar.gz. Example: curl -o repo.tar.gz <download_url> && tar xzf repo.tar.gz"
+  };
 }
