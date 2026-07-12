@@ -5,7 +5,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { resolve, join } from "path";
 import { loadConfig } from "../config.js";
 import {
-  registerRepo, listRepos, getRepo, updateRepo, deleteRepo,
+  registerRepo, listRepos, getRepo, updateRepo,
   createTag, listTags, getLatestTag,
   logAudit, listAudit,
   RepoRow, VersionRow, AuditRow
@@ -185,10 +185,10 @@ export async function apiPush(input: {
   let checkResult = null;
   if (!input.skipChecks) {
     checkResult = await apiCheck({ name: input.name, branch });
-    if (!checkResult.passed && !input.force) {
+    if (!checkResult.passed) {
       return {
         ok: false, stage: "integrity_check",
-        error: "Integrity check failed. Fix errors or pass force=true to override.",
+        error: "Integrity check failed. Fix errors before pushing. Force-push is disabled to protect code integrity. Only incremental updates are allowed.",
         checks: checkResult.checks,
       };
     }
