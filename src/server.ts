@@ -74,6 +74,7 @@ app.post("/tools/:name", async (req, res) => { const tool = (tools as any)[req.p
 catch (e: any) {
     res.status(500).json({ ok: false, error: e.message });
 } });
+app.get("/", (_req, res) => { res.json({ status: "ok", server: "git-mcp" }); });
 app.get("/health", (_req, res) => { res.json({ status: "ok", timestamp: new Date().toISOString(), tools: Object.keys(tools).length }); });
 
 app.listen(cfg.port, cfg.host, () => { console.log(`git-mcp on http://${cfg.host}:${cfg.port}`); });

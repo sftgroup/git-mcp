@@ -117,7 +117,7 @@ export async function apiClone(input: { name: string; branch?: string }) {
   if (existsSync(join(localPath, ".git"))) {
     // Already cloned — pull from GitHub to sync
     git(localPath, `checkout ${branch}`);
-    const out = git(localPath, "pull --rebase origin");
+    const out = git(localPath, "pull --rebase origin " + (branch || repo.default_branch));
     const sha = gitOptional(localPath, "rev-parse HEAD");
     logAudit(input.name, "clone", { branch, commitSha: sha, status: "ok", message: "already cloned, pulled" });
     return { alreadyCloned: true, path: localPath, branch, headSha: sha, message: out };
@@ -161,7 +161,7 @@ export async function apiPull(input: { name: string; branch?: string }) {
   
   git(repo.local_path, `checkout ${branch}`);
   const before = git(repo.local_path, "rev-parse HEAD");
-  const out = git(repo.local_path, "pull --rebase origin");
+  const out = git(repo.local_path, "pull --rebase origin " + (branch || repo.default_branch));
   const after = git(repo.local_path, "rev-parse HEAD");
 
   logAudit(input.name, "pull", { branch, commitSha: after, message: out, status: "ok" });
