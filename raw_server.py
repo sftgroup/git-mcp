@@ -93,7 +93,7 @@ class Handler(BaseHTTPRequestHandler):
             if not os.path.isdir(git_dir):
                 subprocess.run(["git", "init"], cwd=local, timeout=5)
 
-            subprocess.run(["tar", "-xzf", tmp, "-C", local, "--keep-old-files"], timeout=15)
+            subprocess.run(["tar", "-xzf", tmp, "-C", local], timeout=15)
             subprocess.run(["git", "add", "-A"], cwd=local, timeout=5)
             os.unlink(tmp)
 
@@ -105,7 +105,7 @@ class Handler(BaseHTTPRequestHandler):
                 "ok": True,
                 "team": repo,
                 "uploadSizeMB": f"{content_len/1048576:.2f}",
-                "hint": "Incremental upload — old files preserved. Use git_push to commit."
+                "hint": "Upload successful — file contents updated. Use git_push to commit."
             })
             self.wfile.write(result.encode())
         else:
