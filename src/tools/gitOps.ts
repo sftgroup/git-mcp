@@ -749,44 +749,13 @@ export async function apiRepoPull(input: {
 
 // ─── Code Upload (agent/test-server → MCP via HTTP) ───
 // Receives base64 tar.gz, extracts to /opt/mcp/repos/<team>
-export async function apiCodeUpload(input: { team: string, data?: string, branch?: string }) {
-  const localPath = join(cfg.repoBasePath, input.team);
-  
-  // Also support inline base64 for small uploads
-  if (input.data) {
-    if (!existsSync(localPath)) {
-      mkdirSync(localPath, { recursive: true });
-    }
-    const inFile = join(tmpdir(), `upload-${input.team}-${Date.now()}.tar.gz`);
-    try {
-      writeFileSync(inFile, Buffer.from(input.data, "base64"));
-      const keepGit = existsSync(join(localPath, ".git"));
-      if (keepGit) {
-        execSync(`find ${localPath} -maxdepth 1 ! -name .git ! -path ${localPath} -exec rm -rf {} +`, { timeout: 5000 });
-      } else {
-        execSync(`rm -rf "${localPath}"/*`, { timeout: 5000 });
-        execSync(`git init`, { cwd: localPath, timeout: 5000 });
-      }
-      execFileSync("tar", ["-xzf", inFile, "-C", localPath], { timeout: 15000 });
-      execSync("git add -A", { cwd: localPath, timeout: 5000 });
-      const stat = statSync(inFile);
-      const files = execSync("git diff --cached --stat", { cwd: localPath, encoding: "utf8", timeout: 5000 });
-      return {
-        team: input.team,
-        uploadSizeMB: (stat.size / 1048576).toFixed(2),
-        filesChanged: files.trim() || "no changes",
-        hint: "Code uploaded. Use git_push to commit, then git_sync to push to GitHub."
-      };
-    } finally {
-      try { unlinkSync(inFile); } catch {}
-    }
-  }
-
-  // No data provided → return upload URL for large files
+export async function apiCodeUpload(input: { team: string, branch?: string }) {
+  // Code upload is via HTTP POST to raw-upload on port 3088.
+  // MCP only serves as the trigger — no file data through MCP.
   return {
     team: input.team,
     upload_url: `http://43.156.46.187:3088/raw-upload/${input.team}`,
-    hint: "Use exec curl to upload the tar.gz directly (no 64KB limit). Example: curl --data-binary @project.tar.gz <upload_url>"
+    hint: "Use exec curl to upload tar.gz directly (no token cost). Example: curl --data-binary @project.tar.gz <upload_url>. Then call git_push to commit."
   };
 }
 
