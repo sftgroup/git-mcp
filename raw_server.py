@@ -1,6 +1,6 @@
 """Raw code download/upload - no MCP SSE 64KB limit
 v2: incremental upload — never deletes existing files, only adds/overwrites
-v2.1: security hardening — request size limit + repo name validation
+v2.2: auto-commit on upload to preserve full git history
 """
 import os, re, subprocess, tempfile, time, shutil
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -97,15 +97,30 @@ class Handler(BaseHTTPRequestHandler):
             subprocess.run(["git", "add", "-A"], cwd=local, timeout=5)
             os.unlink(tmp)
 
+            # Auto-commit to preserve history (git tracks every version)
+            import json
+            status = subprocess.run(["git", "status", "--porcelain"], cwd=local,
+                                    capture_output=True, text=True, timeout=5).stdout.strip()
+            commit_sha = None
+            if status:
+                ts = time.strftime("%Y-%m-%d %H:%M:%S")
+                subprocess.run(["git", "commit", "-m", f"raw-upload: auto-commit ({ts})"],
+                               cwd=local, timeout=5)
+                commit_sha = subprocess.run(["git", "rev-parse", "HEAD"], cwd=local,
+                                            capture_output=True, text=True, timeout=5).stdout.strip()[:8]
+                hint = f"Upload + auto-commit {commit_sha}. Use git_push + git_sync to push to GitHub."
+            else:
+                hint = "No changes detected — all files identical to HEAD. History preserved."
+
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
-            import json
             result = json.dumps({
                 "ok": True,
                 "team": repo,
                 "uploadSizeMB": f"{content_len/1048576:.2f}",
-                "hint": "Upload successful — file contents updated. Use git_push to commit."
+                "commit": commit_sha,
+                "hint": hint
             })
             self.wfile.write(result.encode())
         else:
