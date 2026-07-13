@@ -22,7 +22,7 @@ function gitTokenUrl(url: string): string {
 }
 
 function git(cwd: string, cmd: string, timeoutSec = 60): string {
-  return execSync(`git ${cmd}`, { cwd, timeout: timeoutSec * 1000, maxBuffer: 5 * 1024 * 1024 }).toString().trim();
+  return execSync(`git ${cmd}`, { cwd, timeout: timeoutSec * 1000, maxBuffer: 5 * 1024 * 1024, stdio: ["pipe", "pipe", "pipe"] }).toString().trim();
 }
 
 function gitOptional(cwd: string, cmd: string, timeoutSec = 30): string {
@@ -54,12 +54,15 @@ export async function apiGetRepo(input: { name: string }) {
   const latest = getLatestTag(input.name);
   const tags = listTags(input.name);
 
-  // Check sync status (auto-detect branch)
+  // Check sync status (auto-detect branch, skip if no remote refs)
   let unsyncedCommits = 0;
   if (localExists) {
     try {
       const branch = gitOptional(repo.local_path, "rev-parse --abbrev-ref HEAD") || repo.default_branch;
-      unsyncedCommits = parseInt(gitOptional(repo.local_path, `rev-list --count origin/${branch}..HEAD`) || "0");
+      const ref = gitOptional(repo.local_path, `rev-parse --verify origin/${branch} 2>/dev/null`);
+      if (ref) {
+        unsyncedCommits = parseInt(gitOptional(repo.local_path, `rev-list --count origin/${branch}..HEAD`) || "0");
+      }
     } catch { unsyncedCommits = -1; }
   }
 
@@ -211,11 +214,14 @@ export async function apiPush(input: {
 
   const commitSha = git(localPath, "rev-parse HEAD");
 
-  // 5. Check unsynced count (use actual branch, not hardcoded master)
+  // 5. Check unsynced count (auto-detect branch, verify remote ref exists first)
   let unsyncedCount = 0;
   try {
     const actualBranch = gitOptional(localPath, "rev-parse --abbrev-ref HEAD") || branch;
-    unsyncedCount = parseInt(gitOptional(localPath, `rev-list --count origin/${actualBranch}..HEAD`) || "0");
+    const ref = gitOptional(localPath, `rev-parse --verify origin/${actualBranch} 2>/dev/null`);
+    if (ref) {
+      unsyncedCount = parseInt(gitOptional(localPath, `rev-list --count origin/${actualBranch}..HEAD`) || "0");
+    }
   } catch { unsyncedCount = -1; }
 
   logAudit(input.name, "push", {
@@ -312,8 +318,9 @@ export async function apiSyncStatus(input: { name?: string }) {
     if (!existsSync(join(repo.local_path, ".git"))) return { name: input.name, unsynced: 0, commits: [] };
 
     const branch = repo.default_branch;
-    // Skip fetch for speed
-    const count = parseInt(gitOptional(repo.local_path, `rev-list --count origin/${branch}..HEAD`) || "0");
+    // Skip fetch for speed — verify ref exists before counting
+    const ref = gitOptional(repo.local_path, `rev-parse --verify origin/${branch} 2>/dev/null`);
+    const count = ref ? parseInt(gitOptional(repo.local_path, `rev-list --count origin/${branch}..HEAD`) || "0") : 0;
 
     let commits: { sha: string; message: string }[] = [];
     if (count > 0) {
@@ -333,8 +340,9 @@ export async function apiSyncStatus(input: { name?: string }) {
   for (const repo of repos) {
     if (!existsSync(join(repo.local_path, ".git"))) continue;
     try {
-      // Skip fetch for speed - sync_status is local-only check
-      const count = parseInt(gitOptional(repo.local_path, `rev-list --count origin/${repo.default_branch}..HEAD`) || "0");
+      // Skip fetch for speed — verify ref exists before counting
+      const ref = gitOptional(repo.local_path, `rev-parse --verify origin/${repo.default_branch} 2>/dev/null`);
+      const count = ref ? parseInt(gitOptional(repo.local_path, `rev-list --count origin/${repo.default_branch}..HEAD`) || "0") : 0;
       if (count > 0) {
         const log = git(repo.local_path, `log --oneline origin/${repo.default_branch}..HEAD`);
         const commits = log.split("\n").filter(Boolean).map(line => {
@@ -368,11 +376,13 @@ export async function apiStatus(input: { name: string }) {
   const unstaged = status.split("\n").filter(l => /^.[MDRC]/.test(l));
   const untracked = status.split("\n").filter(l => /^\?\?/.test(l));
 
-  // Unsynced check
+  // Unsynced check — verify ref exists before counting
   let unsyncedCommits = 0;
   try {
-    // Skip fetch for speed - sync_status is local-only check
-    unsyncedCommits = parseInt(gitOptional(repo.local_path, `rev-list --count origin/${branch}..HEAD`) || "0");
+    const ref = gitOptional(repo.local_path, `rev-parse --verify origin/${branch} 2>/dev/null`);
+    if (ref) {
+      unsyncedCommits = parseInt(gitOptional(repo.local_path, `rev-list --count origin/${branch}..HEAD`) || "0");
+    }
   } catch { unsyncedCommits = -1; }
 
   return {
